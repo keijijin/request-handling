@@ -32,8 +32,8 @@ echo ""
 
 # ユーザー詳細取得
 echo -e "${YELLOW}3. ユーザー詳細取得${NC}"
-echo "GET ${BASE_URL}/api/users/123"
-curl -s -X GET "${BASE_URL}/api/users/123" | jq .
+echo "GET ${BASE_URL}/api/users/1"
+curl -s -X GET "${BASE_URL}/api/users/1" | jq .
 echo ""
 echo ""
 
@@ -48,8 +48,8 @@ echo ""
 
 # ユーザー更新
 echo -e "${YELLOW}5. ユーザー更新${NC}"
-echo "PUT ${BASE_URL}/api/users/123"
-curl -s -X PUT "${BASE_URL}/api/users/123" \
+echo "PUT ${BASE_URL}/api/users/4"
+curl -s -X PUT "${BASE_URL}/api/users/4" \
   -H "Content-Type: application/json" \
   -d '{"name":"田中花子","email":"hanako@example.com"}' | jq .
 echo ""
@@ -57,8 +57,8 @@ echo ""
 
 # ユーザー削除
 echo -e "${YELLOW}6. ユーザー削除${NC}"
-echo "DELETE ${BASE_URL}/api/users/123"
-curl -s -X DELETE "${BASE_URL}/api/users/123" | jq .
+echo "DELETE ${BASE_URL}/api/users/4"
+curl -s -X DELETE "${BASE_URL}/api/users/4" | jq .
 echo ""
 echo ""
 
@@ -76,8 +76,8 @@ echo ""
 
 # 405エラー（許可されていないメソッド）
 echo -e "${RED}8. 405エラー（許可されていないメソッド）${NC}"
-echo "PATCH ${BASE_URL}/api/users/123"
-curl -s -X PATCH "${BASE_URL}/api/users/123" \
+echo "PATCH ${BASE_URL}/api/users/1"
+curl -s -X PATCH "${BASE_URL}/api/users/1" \
   -H "Content-Type: application/json" \
   -d '{}' | jq .
 echo ""
