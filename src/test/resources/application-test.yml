@@ -1,0 +1,40 @@
+server:
+  port: 0  # ランダムポートを使用（テスト時の競合を避ける）
+  undertow:
+    threads:
+      io: 2
+      worker: 4
+  error:
+    whitelabel:
+      enabled: false
+
+spring:
+  application:
+    name: request-handling-app-test
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
+camel:
+  springboot:
+    name: TestCamelContext
+    xml-routes: "classpath:camel/*.xml"
+  component:
+    platform-http:
+      platform-http-engine: undertow
+
+error:
+  messages:
+    404: "指定されたリソースが見つかりません"
+    405: "許可されていないHTTPメソッドです"
+    500: "内部サーバーエラーが発生しました"
+    default: "エラーが発生しました"
+
+logging:
+  level:
+    root: WARN
+    org.apache.camel: INFO
+    com.example: DEBUG
+

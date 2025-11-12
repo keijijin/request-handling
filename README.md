@@ -7,6 +7,7 @@ Camel for Spring Boot + Undertow + Platform HTTPを使用した、カスタム�
 - **[カスタムエラーハンドリングガイド](CUSTOM_ERROR_GUIDE.md)** - 404/405エラーのカスタマイズ方法
 - **[API使用例](API_EXAMPLES.md)** - curlコマンドを使ったAPI呼び出し例
 - **[実装ガイド](IMPLEMENTATION_GUIDE.md)** - アーキテクチャと実装の詳細
+- **[テストガイド](TEST_GUIDE.md)** - JUnitテストの実行方法と構成
 
 ## 機能
 
@@ -173,7 +174,9 @@ java -jar target/request-handling-1.0.0-SNAPSHOT.jar
 
 ## テスト方法
 
-### 正常なリクエスト
+### APIの手動テスト
+
+#### 正常なリクエスト
 
 ```bash
 # ユーザー一覧取得
@@ -199,7 +202,7 @@ curl -X DELETE http://localhost:8080/api/users/4 | jq
 curl -X GET http://localhost:8080/api/health | jq
 ```
 
-### エラーケースのテスト
+#### エラーケースのテスト
 
 ```bash
 # 404エラー（存在しないパス）
@@ -211,6 +214,31 @@ curl -X PATCH http://localhost:8080/api/users/1 | jq
 # 404エラー（存在しないユーザー）
 curl -X GET http://localhost:8080/api/users/999 | jq
 ```
+
+### 自動テスト（JUnit）
+
+このプロジェクトには包括的なJUnitテストが含まれています。
+
+#### 全テストの実行
+
+```bash
+mvn test
+```
+
+#### 特定のテストの実行
+
+```bash
+# ユニットテスト
+mvn test -Dtest=UserServiceTest
+
+# Camelルートの統合テスト
+mvn test -Dtest=CamelRoutesIntegrationTest
+
+# REST APIエンドポイントのテスト
+mvn test -Dtest=RestApiEndpointTest
+```
+
+詳細は **[テストガイド](TEST_GUIDE.md)** を参照してください。
 
 ### 期待されるレスポンス
 
