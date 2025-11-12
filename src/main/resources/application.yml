@@ -4,16 +4,32 @@ server:
     threads:
       io: 4
       worker: 20
+  error:
+    whitelabel:
+      enabled: false
 
 spring:
   application:
     name: request-handling-app
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
 
 camel:
   springboot:
     name: RequestHandlingCamelContext
+    xml-routes: "classpath:camel/*.xml"
+  component:
+    platform-http:
+      platform-http-engine: undertow
 
-# カスタムエラーメッセージの設定
+# Platform HTTP のベースパスを /api に設定
+management:
+  server:
+    base-path: /api
+
 error:
   messages:
     404: "指定されたリソースが見つかりません"
@@ -26,4 +42,3 @@ logging:
     root: INFO
     org.apache.camel: DEBUG
     com.example: DEBUG
-

@@ -1,6 +1,6 @@
 # Request Handling Application
 
-Camel for Spring Boot + Undertow + Servletコンシューマエンドポイントを使用した、カスタムエラーハンドリング機能を持つAPIアプリケーションです。
+Camel for Spring Boot + Undertow + Platform HTTPを使用した、カスタムエラーハンドリング機能を持つAPIアプリケーションです。
 
 ## ドキュメント
 
@@ -10,8 +10,8 @@ Camel for Spring Boot + Undertow + Servletコンシューマエンドポイン�
 
 ## 機能
 
-- **Undertow Webサーバ**: 軽量で高性能なWebサーバ
-- **Apache Camel Servletコンシューマ**: REST APIエンドポイントの公開
+- **Undertow Webサーバ**: 軽量で高性能なWebサーバ（デフォルトのTomcatから切り替え）
+- **Apache Camel Platform HTTP**: REST APIエンドポイントの公開
 - **XML IO DSL**: Camelルートの宣言的な定義
 - **カスタムエラーハンドリング**: 404, 405などのHTTPエラーに対する独自のエラーメッセージ
 - **JSON形式のエラーレスポンス**: 構造化されたエラーレスポンス
@@ -22,7 +22,11 @@ Camel for Spring Boot + Undertow + Servletコンシューマエンドポイン�
 - **Java**: OpenJDK 17.0.14
 - **Spring Boot**: 3.3.8
 - **Apache Camel**: 4.8.3
-- **Undertow**: 組み込みWebサーバ
+  - `camel-spring-boot-starter`: Camel Spring Boot統合
+  - `camel-platform-http-starter`: Platform HTTP統合
+  - `camel-jackson-starter`: JSON処理
+  - `camel-xml-io-dsl`: XML IO DSL
+- **Undertow**: 組み込みWebサーバ（`pom.xml`でTomcatを除外し明示的に追加）
 - **Lombok**: ボイラープレートコード削減
 - **Maven**: ビルドツール
 
@@ -50,31 +54,36 @@ request-handling/
 │   │   │   │   ├── CreateUserProcessor.java        # ユーザー作成
 │   │   │   │   ├── UpdateUserProcessor.java        # ユーザー更新
 │   │   │   │   ├── DeleteUserProcessor.java        # ユーザー削除
-│   │   │   │   └── HealthCheckProcessor.java       # ヘルスチェック
-│   │   │   ├── route/
-│   │   │   │   └── RestApiConfiguration.java       # REST API設定とルート定義
+│   │   │   │   ├── HealthCheckProcessor.java       # ヘルスチェック
+│   │   │   │   └── TestErrorProcessor.java         # テストエラー処理
 │   │   │   └── service/
 │   │   │       └── UserService.java                # ユーザー管理サービス
 │   │   └── resources/
-│   │       └── application.yml                      # アプリケーション設定
+│   │       ├── application.yml                      # アプリケーション設定
+│   │       └── camel/
+│   │           └── routes.xml                       # Camelルート定義（XML IO DSL）
 │   └── test/
 └── README.md
 ```
 
 ## アーキテクチャ
 
-### Camel Java DSL + Processorパターン
+### XML IO DSL + Processorパターン
 
 **設計方針**:
-- **REST設定とルート定義**: Java DSL（`RestApiConfiguration.java`）
+- **ルート定義**: XML IO DSL（`routes.xml`）
 - **ビジネスロジック**: Processorクラスに完全分離
 - **設定**: application.yml
 
-**注意**: Camel XML IO DSLには`<restConfiguration>`、`<rest>`、`<routeConfiguration>`がサポートされていないという制限があるため、Java DSLを使用しています。
+**重要な設定**:
+- **Platform HTTP**: `camel-platform-http-starter`を使用してUndertow上で動作
+- **HTTPメソッド制限**: `httpMethodRestrict`パラメータで各ルートのHTTPメソッドを制限
+- **404/405統一JSON**: `spring.mvc.throw-exception-if-no-handler-found=true`等の設定が必要
+- **XML IO DSL読み込み**: `camel.springboot.xml-routes`設定で自動読み込み
 
 ### Processorパターン
 
-各エンドポイントの処理ロジックはProcessorクラスとして実装され、ルート定義から参照されます：
+各エンドポイントの処理ロジックはProcessorクラスとして実装され、XMLルート定義から参照されます：
 
 ```java
 @Component
@@ -86,11 +95,29 @@ public class GetUsersProcessor implements Processor {
 }
 ```
 
+```xml
+<!-- routes.xml -->
+<route id="get-users-route">
+    <from uri="platform-http:/api/users?httpMethodRestrict=GET"/>
+    <log message="ユーザー一覧取得リクエスト"/>
+    <doTry>
+        <process ref="getUsersProcessor"/>
+        <doCatch>
+            <exception>java.lang.Exception</exception>
+            <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+            <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+            <process ref="globalErrorProcessor"/>
+        </doCatch>
+    </doTry>
+</route>
+```
+
 **メリット**:
 - ロジックとルーティングの明確な分離
 - テスト可能な単位への分割
 - 再利用性の向上
 - 保守性の向上
+- Platform HTTPによる高性能な処理
 
 ## セットアップと起動
 
@@ -254,25 +281,23 @@ public class MyCustomProcessor implements Processor {
 }
 ```
 
-**Step 2**: `RestApiConfiguration.java`にルートを追加
+**Step 2**: `routes.xml`にルートを追加
 
-```java
-@Autowired
-private MyCustomProcessor myCustomProcessor;
-
-// configure()メソッド内
-rest("/custom")
-    .get()
-        .to("direct:myCustomRoute");
-
-from("direct:myCustomRoute")
-    .log("カスタムリクエスト")
-    .doTry()
-        .process(myCustomProcessor)
-    .doCatch(Exception.class)
-        .setHeader("CamelHttpResponseCode", constant(500))
-        .process(globalErrorProcessor)
-    .end();
+```xml
+<!-- カスタムルート -->
+<route id="my-custom-route">
+    <from uri="platform-http:/api/custom?httpMethodRestrict=GET"/>
+    <log message="カスタムリクエスト"/>
+    <doTry>
+        <process ref="myCustomProcessor"/>
+        <doCatch>
+            <exception>java.lang.Exception</exception>
+            <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+            <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+            <process ref="globalErrorProcessor"/>
+        </doCatch>
+    </doTry>
+</route>
 ```
 
 ## エラーハンドリングの階層
@@ -285,7 +310,7 @@ Spring BootのErrorControllerインターフェースを実装し、Servletレ�
 
 ### レベル2: Camelルートレベル（ビジネスロジック内の例外）
 
-**ハンドラー**: XMLの`<onException>`と`GlobalErrorProcessor`
+**ハンドラー**: XMLの`<doCatch>`と`GlobalErrorProcessor`
 
 Camelルート実行中に発生した例外をキャッチし、カスタムエラーレスポンスを返します。
 
@@ -298,7 +323,7 @@ Camelルート実行中に発生した例外をキャッチし、カスタムエ
 **解決方法**:
 - Processorクラスに`@Component`アノテーションが付いているか確認
 - Spring component scanの対象パッケージに含まれているか確認
-- `RestApiConfiguration`で`@Autowired`されているか確認
+- アプリケーションが正常に起動しているか確認
 
 ### 問題2: バージョン互換性の問題
 
@@ -310,33 +335,82 @@ Camelルート実行中に発生した例外をキャッチし、カスタムエ
 
 ### 問題3: XML IO DSL について
 
-**制限事項**:
-Camel XML IO DSLには以下の制限があります：
-- `<restConfiguration>` サポートなし
-- `<rest>` 定義サポートなし
-- `<routeConfiguration>` サポートなし
+**重要なポイント**:
+このプロジェクトは**XML IO DSL**を使用しています：
 
-そのため、本プロジェクトではJava DSLを使用しています。XML IO DSLは主にシンプルなルート定義用です。
+| 項目 | 説明 |
+|------|------|
+| ルート要素 | `<routes>` |
+| HTTPコンポーネント | `platform-http` |
+| エンドポイント定義 | `<from uri="platform-http:/api/path?httpMethodRestrict=GET"/>` |
+| エラーハンドリング | `<doTry>`/`<doCatch>` |
+| パスパラメータ | `platform-http:/api/users/{id}` |
+| 読み込み方法 | `camel.springboot.xml-routes`設定 |
+| 用途 | シンプルで直感的なルート定義 |
+
+**XML IO DSLの注意点**:
+- 各ルートで直接HTTPエンドポイントを定義
+- `httpMethodRestrict`パラメータでHTTPメソッドを制限
+- Platform HTTPコンポーネントにより、同一パスで複数のHTTPメソッドをサポート
 
 ## バージョン情報
 
 - **Java**: OpenJDK 17.0.14
 - **Spring Boot**: 3.3.8
 - **Apache Camel**: 4.8.3
-- **Undertow**: Spring Bootのデフォルトバージョン
+- **Undertow**: Spring Boot 3.3.8に含まれるバージョン（Tomcatを除外して使用）
+
+## XMLルートの編集
+
+このプロジェクトのCamelルート（`src/main/resources/camel/routes.xml`）は、XML IO DSL形式で記述されています。
+
+### 編集方法
+
+XMLファイルを直接編集します：
+
+```
+src/main/resources/camel/routes.xml
+```
+
+### ルート追加の例
+
+```xml
+<route id="my-new-route">
+    <from uri="platform-http:/api/myendpoint?httpMethodRestrict=GET"/>
+    <log message="新しいエンドポイント"/>
+    <doTry>
+        <process ref="myProcessor"/>
+        <doCatch>
+            <exception>java.lang.Exception</exception>
+            <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+            <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+            <process ref="globalErrorProcessor"/>
+        </doCatch>
+    </doTry>
+</route>
+```
+
+### ポイント
+
+- ✅ **シンプルな構造**: 各ルートが独立しており理解しやすい
+- ✅ **直接的なエンドポイント定義**: `platform-http`で直接HTTPエンドポイントを指定
+- ✅ **HTTPメソッド制限**: `httpMethodRestrict`パラメータで制御
+- ✅ **統一されたエラーハンドリング**: 全ルートで`<doCatch>`を使用
 
 ## まとめ
 
 この実装により、以下が実現できます：
 
 ✅ **Spring Boot 3.3.8 + Camel 4.8.3**: 最新バージョンの使用  
+✅ **XML IO DSL**: シンプルで直感的なルート定義  
+✅ **Platform HTTP**: Undertow上で動作する高性能HTTPコンポーネント  
 ✅ **Processorパターン**: ビジネスロジックの完全分離  
-✅ **カスタムエラーハンドリング**: 404、405などのHTTPエラーに対する独自レスポンス  
+✅ **カスタムエラーハンドリング**: 404、405などのHTTPエラーに対する統一JSON形式  
 ✅ **JSON形式の統一**: 構造化されたエラーとレスポンス形式  
 ✅ **設定ベース**: エラーメッセージをYAMLで管理  
 ✅ **完全なCRUD操作**: RESTful APIの実装  
-✅ **Undertow**: 高性能な組み込みWebサーバ  
+✅ **Undertow**: 高性能な組み込みWebサーバ（Tomcatから切り替え）  
 ✅ **保守性**: ロジックとルーティングの明確な分離  
 
 **技術的選択について**:
-当初XML IO DSLの使用を検討しましたが、`<restConfiguration>`と`<rest>`定義がサポートされていない制限があるため、Java DSLを採用しました。この構成は、マイクロサービスアーキテクチャやAPI Gatewayパターンで使用されるベストプラクティスに従っています。
+このプロジェクトは**XML IO DSL**を採用しており、各ルートで直接HTTPエンドポイントを定義することで、シンプルで理解しやすい構造を実現しています。Platform HTTPコンポーネントにより、同一パスで複数のHTTPメソッドをサポートし、Processorパターンによりビジネスロジックとルーティングを分離し、`application.yml`での適切な設定（404/405統一JSON等）により、保守性の高い設計を実現しています。

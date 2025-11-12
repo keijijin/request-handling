@@ -2,7 +2,7 @@
 
 ## 概要
 
-このドキュメントでは、Camel for Spring Boot + Undertow + Servletコンシューマエンドポイントを使用して、404や405などのエラーレスポンスをカスタマイズする方法を説明します。
+このドキュメントでは、Camel for Spring Boot + Undertow + Platform HTTPを使用して、404や405などのエラーレスポンスをカスタマイズする方法を説明します。
 
 ## アーキテクチャ
 
@@ -11,7 +11,7 @@
 - **Webサーバ**: Undertow（軽量で高性能）
 - **フレームワーク**: Spring Boot 3.3.8
 - **統合フレームワーク**: Apache Camel 4.8.3
-- **エンドポイント**: Camel Servletコンシューマ
+- **エンドポイント**: Camel Platform HTTP
 - **Java**: OpenJDK 17.0.14
 
 ### コンポーネント構成
@@ -28,11 +28,11 @@
                     │
                     ▼
 ┌─────────────────────────────────────────────────────┐
-│         Camel Servletコンシューマ (/api/*)           │
+│         Camel Platform HTTP (/api/*)                │
 │                                                       │
 │  ┌───────────────────────────────────────────┐     │
 │  │        正常なルート処理                     │     │
-│  │   (ApiRouteBuilder)                        │     │
+│  │   (routes.xml - XML IO DSL)                │     │
 │  └───────────────┬───────────────────────────┘     │
 │                  │ 404/405エラー発生                │
 │                  ▼                                   │
@@ -147,53 +147,93 @@ public class ErrorResponse {
 }
 ```
 
-### 4. Camelルート定義（Processorパターン）
+### 4. Camelルート定義（XML IO DSL + Processorパターン）
 
-APIエンドポイントを定義し、ビジネスロジックはProcessorクラスに委譲します。
+APIエンドポイントを定義し、ビジネスロジックはProcessorクラスに委譲します。このプロジェクトは**XML IO DSL**を使用しています。
 
-**ファイル**: `src/main/java/com/example/requesthandling/route/RestApiConfiguration.java`
+**重要な実装ポイント**:
+1. **Platform HTTP**: 各ルートで直接HTTPエンドポイントを定義
+2. **HTTPメソッド制限**: `httpMethodRestrict`パラメータで制限
+3. **404/405統一JSON**: `spring.mvc.throw-exception-if-no-handler-found=true`等の設定
+4. **パスパラメータ**: `platform-http:/api/users/{id}` で定義可能
+
+**ファイル**: `src/main/resources/camel/routes.xml`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/xml-io">
+
+  <!-- ユーザー一覧取得 -->
+  <route id="get-users-route">
+    <from uri="platform-http:/api/users?httpMethodRestrict=GET"/>
+    <log message="ユーザー一覧取得リクエスト"/>
+    <doTry>
+      <process ref="getUsersProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <!-- ユーザー詳細取得 -->
+  <route id="get-user-by-id-route">
+    <from uri="platform-http:/api/users/{id}?httpMethodRestrict=GET"/>
+    <log message="ユーザー詳細取得: ID=${header.id}"/>
+    <doTry>
+      <process ref="getUserByIdProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <!-- 他のルート... -->
+
+</routes>
+```
+
+**アプリケーションクラス設定**:
 
 ```java
-@Component
-public class RestApiConfiguration extends RouteBuilder {
-
-    @Autowired
-    private GetUsersProcessor getUsersProcessor;
+@SpringBootApplication
+public class RequestHandlingApplication {
     
-    @Autowired
-    private GlobalErrorProcessor globalErrorProcessor;
-
-    @Override
-    public void configure() throws Exception {
-        
-        // REST設定
-        restConfiguration()
-                .component("servlet")
-                .bindingMode(RestBindingMode.off)  // 手動でJSON処理
-                .dataFormatProperty("prettyPrint", "true")
-                .enableCORS(true)
-                .contextPath("/api");
-
-        // REST APIエンドポイント定義
-        rest("/users")
-                .get().to("direct:getUsers")
-                .get("/{id}").to("direct:getUserById")
-                .post().to("direct:createUser")
-                .put("/{id}").to("direct:updateUser")
-                .delete("/{id}").to("direct:deleteUser");
-
-        // ルート実装（doTry/doCatchでエラーハンドリング）
-        from("direct:getUsers")
-                .routeId("get-users-route")
-                .log("ユーザー一覧取得リクエスト")
-                .doTry()
-                    .process(getUsersProcessor)
-                .doCatch(Exception.class)
-                    .setHeader("CamelHttpResponseCode", constant(500))
-                    .process(globalErrorProcessor)
-                .end();
+    public static void main(String[] args) {
+        SpringApplication.run(RequestHandlingApplication.class, args);
     }
 }
+```
+
+**注意**: XML IO DSLは`camel.springboot.xml-routes`設定で自動読み込みされます。
+
+**application.yml設定**:
+
+```yaml
+server:
+  error:
+    whitelabel:
+      enabled: false
+
+spring:
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
+camel:
+  springboot:
+    name: RequestHandlingCamelContext
+    xml-routes: "classpath:camel/*.xml"
+  component:
+    platform-http:
+      platform-http-engine: undertow
 ```
 
 **Processorクラス例**:
@@ -247,47 +287,35 @@ public class GetUsersProcessor implements Processor {
 - データベース接続エラー
 - 外部API呼び出しエラー
 
-**ハンドラー**: ApiRouteBuilder内の`onException()`
+**ハンドラー**: `routes.xml`内の`<doCatch>`と`GlobalErrorProcessor`
 
 **動作**:
 1. Camelルート実行中に例外発生
-2. `onException()`がキャッチ
-3. 500エラーレスポンスを構築
+2. `<doCatch>`がキャッチ
+3. `GlobalErrorProcessor`で500エラーレスポンスを構築
 4. クライアントに返却
 
 ## 実装のポイント
 
-### 1. Bean定義の重複を避ける
+### 1. シンプルな設定
 
-❌ **悪い例** (Bean重複エラーが発生):
-
-```java
-@SpringBootApplication
-public class RequestHandlingApplication {
-    
-    @Bean
-    public ServletRegistrationBean<CamelHttpTransportServlet> camelServletRegistrationBean() {
-        // Camel Servlet Starterの自動設定と競合！
-        return new ServletRegistrationBean<>(new CamelHttpTransportServlet(), "/api/*");
-    }
-}
-```
-
-✅ **良い例** (application.ymlで設定):
+✅ **推奨** (application.ymlで設定):
 
 ```java
 @SpringBootApplication
 public class RequestHandlingApplication {
-    // Beanの手動定義は不要
+    // 追加設定は不要
 }
 ```
 
 ```yaml
 camel:
+  springboot:
+    name: RequestHandlingCamelContext
+    xml-routes: "classpath:camel/*.xml"
   component:
-    servlet:
-      mapping:
-        context-path: /api/*
+    platform-http:
+      platform-http-engine: undertow
 ```
 
 ### 2. API documentationを使う場合
@@ -392,6 +420,57 @@ curl -X PATCH http://localhost:8080/api/users/123
 }
 ```
 
+## XMLルートの編集方法
+
+### 直接編集
+
+本プロジェクトの`src/main/resources/camel/routes.xml`は、XML IO DSL形式で記述されており、XMLエディタで直接編集します。
+
+**手順**:
+
+1. **XMLファイルを開く**
+   ```
+   src/main/resources/camel/routes.xml
+   ```
+
+2. **ルートを追加/編集**
+   ```xml
+   <route id="my-new-route">
+       <from uri="platform-http:/api/myendpoint?httpMethodRestrict=GET"/>
+       <log message="新しいエンドポイント"/>
+       <doTry>
+           <process ref="myProcessor"/>
+           <doCatch>
+               <exception>java.lang.Exception</exception>
+               <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+               <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+               <process ref="globalErrorProcessor"/>
+           </doCatch>
+       </doTry>
+   </route>
+   ```
+
+3. **Processorクラスを実装**
+   ```java
+   @Component
+   public class MyProcessor implements Processor {
+       @Override
+       public void process(Exchange exchange) throws Exception {
+           // ビジネスロジック
+       }
+   }
+   ```
+
+**メリット**:
+- シンプルで直感的な構造
+- 各ルートが独立しており理解しやすい
+- HTTPエンドポイントを直接定義
+- エラーハンドリングが統一されている
+
+**注意点**:
+- Processorクラスのビジネスロジック自体は、Javaコードで実装する必要があります
+- XMLで定義できるのはルーティングとフロー制御のみです
+
 ## カスタマイズ方法
 
 ### エラーメッセージの変更
@@ -444,27 +523,41 @@ public class GetProductsProcessor implements Processor {
 }
 ```
 
-**Step 2**: `RestApiConfiguration.java`に追加
+**Step 2**: `routes.xml`に追加
 
-```java
-@Autowired
-private GetProductsProcessor getProductsProcessor;
+```xml
+<!-- 商品一覧取得 -->
+<route id="get-products-route">
+    <from uri="platform-http:/api/products?httpMethodRestrict=GET"/>
+    <log message="商品一覧取得リクエスト"/>
+    <doTry>
+        <process ref="getProductsProcessor"/>
+        <doCatch>
+            <exception>java.lang.Exception</exception>
+            <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+            <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+            <process ref="globalErrorProcessor"/>
+        </doCatch>
+    </doTry>
+</route>
 
-// REST定義
-rest("/products")
-    .get().to("direct:getProducts")
-    .post().to("direct:createProduct");
-
-// ルート実装
-from("direct:getProducts")
-    .routeId("get-products-route")
-    .doTry()
-        .process(getProductsProcessor)
-    .doCatch(Exception.class)
-        .setHeader("CamelHttpResponseCode", constant(500))
-        .process(globalErrorProcessor)
-    .end();
+<!-- 商品詳細取得 -->
+<route id="get-product-by-id-route">
+    <from uri="platform-http:/api/products/{id}?httpMethodRestrict=GET"/>
+    <log message="商品詳細取得: ID=${header.id}"/>
+    <doTry>
+        <process ref="getProductByIdProcessor"/>
+        <doCatch>
+            <exception>java.lang.Exception</exception>
+            <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+            <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+            <process ref="globalErrorProcessor"/>
+        </doCatch>
+    </doTry>
+</route>
 ```
+
+**重要**: Platform HTTPでは、同一パスで複数のHTTPメソッドをサポートします。`httpMethodRestrict`パラメータで制御します。
 
 ## トラブルシューティング
 
@@ -488,9 +581,78 @@ Invalid bean definition with name 'camelServletRegistrationBean'
 ### 問題3: Camelルートが起動しない
 
 **確認ポイント**:
-1. `camel-servlet-starter`依存関係が追加されているか
-2. `application.yml`の設定が正しいか
-3. ログを確認してエラーメッセージを特定
+1. `camel-platform-http-starter`依存関係が追加されているか
+2. `camel-xml-io-dsl`依存関係が追加されているか
+3. `camel.springboot.xml-routes`設定が正しいか
+4. XMLファイルのスキーマが正しいか（XML IO DSLの場合は`http://camel.apache.org/schema/xml-io`）
+5. ログを確認してエラーメッセージを特定
+
+### 問題4: XMLルートが読み込まれない
+
+**エラーメッセージ**:
+```
+No routes found
+```
+
+**解決方法**:
+1. `camel.springboot.xml-routes`設定が正しく設定されているか確認:
+   ```yaml
+   camel:
+     springboot:
+       xml-routes: "classpath:camel/*.xml"
+   ```
+
+2. XMLファイルが正しいディレクトリ（`src/main/resources/camel/`）に配置されているか確認
+
+3. XMLのルート要素が`<routes>`で、XML IO DSL名前空間が正しく宣言されているか確認:
+   ```xml
+   <routes xmlns="http://camel.apache.org/schema/xml-io">
+   ```
+
+4. Platform HTTP設定が正しく設定されているか確認（`application.yml`）:
+   ```yaml
+   camel:
+     component:
+       platform-http:
+         platform-http-engine: undertow
+   ```
+
+### 問題5: Processorが見つからない
+
+**エラーメッセージ**:
+```
+No bean could be found in the registry of type: com.example.requesthandling.processor.GetUsersProcessor
+```
+
+**解決方法**:
+1. Processorクラスに`@Component`アノテーションが付いているか確認
+2. Processorクラスのパッケージが`@SpringBootApplication`のコンポーネントスキャン対象になっているか確認
+3. XMLで参照している`ref`名がProcessorクラスのBean名（デフォルトはクラス名の先頭を小文字にしたもの）と一致しているか確認
+
+### 問題6: パスパラメータの定義
+
+**質問**: パスパラメータ（`{id}`）をどう定義すべきか？
+
+**解決方法**:
+Platform HTTPでは、URIに直接パスパラメータを含めます：
+
+```xml
+<route id="get-user-by-id-route">
+    <from uri="platform-http:/api/users/{id}?httpMethodRestrict=GET"/>
+    <log message="ユーザー詳細取得: ID=${header.id}"/>
+    <doTry>
+        <process ref="getUserByIdProcessor"/>
+        <doCatch>
+            <exception>java.lang.Exception</exception>
+            <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+            <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+            <process ref="globalErrorProcessor"/>
+        </doCatch>
+    </doTry>
+</route>
+```
+
+パスパラメータは`${header.id}`でアクセスできます。
 
 ## まとめ
 
@@ -501,7 +663,10 @@ Invalid bean definition with name 'camelServletRegistrationBean'
 ✅ 設定ファイルでエラーメッセージを管理
 ✅ Camelルート内のエラーハンドリング
 ✅ 詳細なエラー情報の提供
+✅ **XML IO DSL**: シンプルで直感的なルート定義
+✅ Processorパターンによるロジックとルーティングの分離
+✅ **Platform HTTP**: Undertow上で動作する高性能HTTPコンポーネント
+✅ **Undertow**: 高性能Webサーバの利用（Tomcatから切り替え）
 
-この構成は、マイクロサービスアーキテクチャやAPI Gateway
-パターンで使用されるエラーハンドリングのベストプラクティスに従っています。
+この構成は、マイクロサービスアーキテクチャやAPI Gatewayパターンで使用されるエラーハンドリングのベストプラクティスに従っており、さらにXML IO DSLによるシンプルな設計によって保守性と理解しやすさを実現しています。
 

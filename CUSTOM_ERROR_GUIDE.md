@@ -527,18 +527,35 @@ curl -X OPTIONS http://localhost:8080/api/users | jq
 
 意図的にエラーを発生させてテストする場合、テスト用のエンドポイントを追加できます。
 
-`RestApiConfiguration.java`に追加：
+**Step 1**: `TestErrorProcessor.java`を作成：
 
 ```java
-rest("/test")
-    .get("/error")
-        .to("direct:testError");
-
-from("direct:testError")
-    .log("テストエラーを発生させます")
-    .process(exchange -> {
+@Component
+public class TestErrorProcessor implements Processor {
+    @Override
+    public void process(Exchange exchange) throws Exception {
         throw new RuntimeException("これはテスト用のエラーです");
-    });
+    }
+}
+```
+
+**Step 2**: `routes.xml`に追加：
+
+```xml
+<!-- テストエラールート -->
+<route id="test-error-route">
+    <from uri="platform-http:/api/test/error?httpMethodRestrict=GET"/>
+    <log message="テストエラーを発生させます"/>
+    <doTry>
+        <process ref="testErrorProcessor"/>
+        <doCatch>
+            <exception>java.lang.Exception</exception>
+            <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+            <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+            <process ref="globalErrorProcessor"/>
+        </doCatch>
+    </doTry>
+</route>
 ```
 
 ```bash

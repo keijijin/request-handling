@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/xml-io">
+
+  <!-- /api/users -->
+  <route id="get-users-route">
+    <from uri="platform-http:/api/users?httpMethodRestrict=GET"/>
+    <log message="ユーザー一覧取得リクエスト"/>
+    <doTry>
+      <process ref="getUsersProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <route id="create-user-route">
+    <from uri="platform-http:/api/users?httpMethodRestrict=POST"/>
+    <log message="ユーザー作成: ${body}"/>
+    <doTry>
+      <process ref="createUserProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <!-- /api/users/{id} -->
+  <route id="get-user-by-id-route">
+    <from uri="platform-http:/api/users/{id}?httpMethodRestrict=GET"/>
+    <log message="ユーザー詳細取得: ID=${header.id}"/>
+    <doTry>
+      <process ref="getUserByIdProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <route id="update-user-route">
+    <from uri="platform-http:/api/users/{id}?httpMethodRestrict=PUT"/>
+    <log message="ユーザー更新: ID=${header.id}"/>
+    <doTry>
+      <process ref="updateUserProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <route id="delete-user-route">
+    <from uri="platform-http:/api/users/{id}?httpMethodRestrict=DELETE"/>
+    <log message="ユーザー削除: ID=${header.id}"/>
+    <doTry>
+      <process ref="deleteUserProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <!-- /api/health -->
+  <route id="health-route">
+    <from uri="platform-http:/api/health?httpMethodRestrict=GET"/>
+    <log message="ヘルスチェック"/>
+    <doTry>
+      <process ref="healthCheckProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <!-- /api/test/error -->
+  <route id="test-error-route">
+    <from uri="platform-http:/api/test/error?httpMethodRestrict=GET"/>
+    <log message="テストエラー"/>
+    <doTry>
+      <process ref="testErrorProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+        <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+</routes>
