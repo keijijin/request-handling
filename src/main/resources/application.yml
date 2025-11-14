@@ -21,14 +21,6 @@ camel:
   springboot:
     name: RequestHandlingCamelContext
     xml-routes: "classpath:camel/*.xml"
-  component:
-    platform-http:
-      platform-http-engine: undertow
-
-# Platform HTTP のベースパスを /api に設定
-management:
-  server:
-    base-path: /api
 
 error:
   messages:

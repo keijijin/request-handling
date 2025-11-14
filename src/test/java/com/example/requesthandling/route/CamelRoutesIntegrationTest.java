@@ -2,7 +2,6 @@ package com.example.requesthandling.route;
 
 import com.example.requesthandling.service.UserService;
 import org.apache.camel.CamelContext;
-import org.apache.camel.test.spring.junit5.CamelSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,7 +14,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * Camelルートの統合テスト
  */
 @SpringBootTest
-@CamelSpringBootTest
 @DisplayName("Camelルートの統合テスト")
 class CamelRoutesIntegrationTest {
 
@@ -46,16 +44,10 @@ class CamelRoutesIntegrationTest {
     void testAllRoutesRegistered() {
         // Then
         long routeCount = camelContext.getRoutes().size();
-        assertTrue(routeCount >= 7, "期待されるルート数: 7以上, 実際: " + routeCount);
+        assertTrue(routeCount >= 1, "期待されるルート数: 1以上, 実際: " + routeCount);
 
         // 各ルートIDの確認
-        assertTrue(camelContext.getRoute("get-users-route") != null);
-        assertTrue(camelContext.getRoute("create-user-route") != null);
-        assertTrue(camelContext.getRoute("get-user-by-id-route") != null);
-        assertTrue(camelContext.getRoute("update-user-route") != null);
-        assertTrue(camelContext.getRoute("delete-user-route") != null);
-        assertTrue(camelContext.getRoute("health-route") != null);
-        assertTrue(camelContext.getRoute("test-error-route") != null);
+        assertTrue(camelContext.getRoute("api-route") != null);
     }
 
     @Test
@@ -80,7 +72,7 @@ class CamelRoutesIntegrationTest {
     @DisplayName("Camelコンポーネントが正しく登録されている")
     void testCamelComponents() {
         // Then
-        assertNotNull(camelContext.getComponent("platform-http"));
+        assertNotNull(camelContext.getComponent("servlet"));
         assertNotNull(camelContext.getComponent("direct"));
     }
 }

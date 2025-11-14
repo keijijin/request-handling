@@ -1,17 +1,34 @@
 package com.example.requesthandling;
 
+import org.apache.camel.component.servlet.CamelHttpTransportServlet;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.web.servlet.ServletRegistrationBean;
+import org.springframework.context.annotation.Bean;
 
 /**
  * Request Handling Application
- * Camel for Spring Boot with Undertow and Platform HTTP
+ * Camel for Spring Boot with Undertow and Servlet
+ * 
+ * ServletMappingAutoConfigurationを除外して、明示的にServletを登録
  */
-@SpringBootApplication
+@SpringBootApplication(exclude = org.apache.camel.component.servlet.springboot.ServletMappingAutoConfiguration.class)
 public class RequestHandlingApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(RequestHandlingApplication.class, args);
+    }
+
+    /**
+     * CamelServletの明示的な登録
+     * /api/* のパスで受け付ける
+     */
+    @Bean
+    public ServletRegistrationBean<CamelHttpTransportServlet> servletRegistrationBean() {
+        ServletRegistrationBean<CamelHttpTransportServlet> registration = 
+            new ServletRegistrationBean<>(new CamelHttpTransportServlet(), "/api/*");
+        registration.setName("CamelServlet");
+        return registration;
     }
 }
 
