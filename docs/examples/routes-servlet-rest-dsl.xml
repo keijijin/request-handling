@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/xml-io">
+
+  <!-- REST設定：Servletを使用 -->
+  <restConfiguration component="servlet" 
+                     bindingMode="off" 
+                     contextPath="/api"
+                     enableCORS="true">
+    <dataFormatProperty key="prettyPrint" value="true"/>
+  </restConfiguration>
+
+  <!-- RESTエンドポイント定義 -->
+  <rests>
+    <rest path="/users">
+      <!-- GET /api/users - ユーザー一覧取得 -->
+      <get uri="/">
+        <route id="get-users-route">
+          <log message="ユーザー一覧取得リクエスト"/>
+          <doTry>
+            <process ref="getUsersProcessor"/>
+            <doCatch>
+              <exception>java.lang.Exception</exception>
+              <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+              <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+              <process ref="globalErrorProcessor"/>
+            </doCatch>
+          </doTry>
+        </route>
+      </get>
+      
+      <!-- POST /api/users - ユーザー作成 -->
+      <post uri="/">
+        <route id="create-user-route">
+          <log message="ユーザー作成: ${body}"/>
+          <doTry>
+            <process ref="createUserProcessor"/>
+            <doCatch>
+              <exception>java.lang.Exception</exception>
+              <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+              <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+              <process ref="globalErrorProcessor"/>
+            </doCatch>
+          </doTry>
+        </route>
+      </post>
+      
+      <!-- GET /api/users/{id} - ユーザー詳細取得 -->
+      <get uri="/{id}">
+        <route id="get-user-by-id-route">
+          <log message="ユーザー詳細取得: ID=${header.id}"/>
+          <doTry>
+            <process ref="getUserByIdProcessor"/>
+            <doCatch>
+              <exception>java.lang.Exception</exception>
+              <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+              <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+              <process ref="globalErrorProcessor"/>
+            </doCatch>
+          </doTry>
+        </route>
+      </get>
+      
+      <!-- PUT /api/users/{id} - ユーザー更新 -->
+      <put uri="/{id}">
+        <route id="update-user-route">
+          <log message="ユーザー更新: ID=${header.id}"/>
+          <doTry>
+            <process ref="updateUserProcessor"/>
+            <doCatch>
+              <exception>java.lang.Exception</exception>
+              <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+              <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+              <process ref="globalErrorProcessor"/>
+            </doCatch>
+          </doTry>
+        </route>
+      </put>
+      
+      <!-- DELETE /api/users/{id} - ユーザー削除 -->
+      <delete uri="/{id}">
+        <route id="delete-user-route">
+          <log message="ユーザー削除: ID=${header.id}"/>
+          <doTry>
+            <process ref="deleteUserProcessor"/>
+            <doCatch>
+              <exception>java.lang.Exception</exception>
+              <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+              <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+              <process ref="globalErrorProcessor"/>
+            </doCatch>
+          </doTry>
+        </route>
+      </delete>
+    </rest>
+    
+    <rest path="/health">
+      <!-- GET /api/health - ヘルスチェック -->
+      <get uri="/">
+        <route id="health-route">
+          <log message="ヘルスチェック"/>
+          <doTry>
+            <process ref="healthCheckProcessor"/>
+            <doCatch>
+              <exception>java.lang.Exception</exception>
+              <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+              <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+              <process ref="globalErrorProcessor"/>
+            </doCatch>
+          </doTry>
+        </route>
+      </get>
+    </rest>
+    
+    <rest path="/test">
+      <!-- GET /api/test/error - テストエラー -->
+      <get uri="/error">
+        <route id="test-error-route">
+          <log message="テストエラー"/>
+          <doTry>
+            <process ref="testErrorProcessor"/>
+            <doCatch>
+              <exception>java.lang.Exception</exception>
+              <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+              <setHeader name="Content-Type"><constant>application/json</constant></setHeader>
+              <process ref="globalErrorProcessor"/>
+            </doCatch>
+          </doTry>
+        </route>
+      </get>
+    </rest>
+  </rests>
+  
+</routes>

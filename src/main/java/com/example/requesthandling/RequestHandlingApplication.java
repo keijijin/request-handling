@@ -9,8 +9,10 @@ import org.springframework.context.annotation.Bean;
 /**
  * Request Handling Application
  * Camel for Spring Boot with Undertow and Servlet
- * 
+ *
  * ServletMappingAutoConfigurationを除外して、明示的にServletを登録
+ * REST設定: config/RestApiConfiguration.java
+ * RESTエンドポイント: camel/routes.xml (Spring XML)
  */
 @SpringBootApplication(exclude = org.apache.camel.component.servlet.springboot.ServletMappingAutoConfiguration.class)
 public class RequestHandlingApplication {
@@ -25,7 +27,7 @@ public class RequestHandlingApplication {
      */
     @Bean
     public ServletRegistrationBean<CamelHttpTransportServlet> servletRegistrationBean() {
-        ServletRegistrationBean<CamelHttpTransportServlet> registration = 
+        ServletRegistrationBean<CamelHttpTransportServlet> registration =
             new ServletRegistrationBean<>(new CamelHttpTransportServlet(), "/api/*");
         registration.setName("CamelServlet");
         return registration;
