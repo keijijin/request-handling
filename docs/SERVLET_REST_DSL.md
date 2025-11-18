@@ -1,4 +1,4 @@
-# Servlet + REST DSL: 各エンドポイント独立構成
+# Servlet + REST DSL: 各エンドポイント独立構成（Java + XML IO DSL ハイブリッド）
 
 ## ✅ 結論
 
@@ -18,83 +18,112 @@
 
 **Servletでも、REST DSLを使用すれば、各エンドポイントを独立したルートとして定義できる。**
 
-## 実装方法の比較
+## 現在の実装方式：Java + XML IO DSL ハイブリッド
 
-### 方法1: REST DSL（推奨）✅
+### XML IO DSLの制限事項
 
-各エンドポイントが独立したルート、既存のREST DSL構成を維持可能
+XML IO DSL（Camel 4.8）では、以下の要素はサポートされていません：
+
+- ❌ `<restConfiguration>` 要素
+- ✅ `<rests>` / `<rest>` 要素（ドキュメント上は可能だが、実装上は制約あり）
+
+そのため、現在の実装は**Java DSLとXML IO DSLのハイブリッド構成**となっています。
+
+### 実装構成
+
+#### 1. REST設定とエンドポイント定義（Java DSL）
+
+`config/RestApiConfiguration.java`
+
+```java
+@Configuration
+public class RestApiConfiguration {
+
+    @Bean
+    public RouteBuilder restConfigurationRouteBuilder() {
+        return new RouteBuilder() {
+            @Override
+            public void configure() throws Exception {
+                // REST設定
+                restConfiguration()
+                    .component("servlet")
+                    .bindingMode(RestBindingMode.off)
+                    .contextPath("/api")
+                    .enableCORS(true)
+                    .dataFormatProperty("prettyPrint", "true");
+
+                // RESTエンドポイント定義
+                rest("/users")
+                    .get("/").to("direct:get-users")
+                    .post("/").to("direct:create-user")
+                    .get("/{id}").to("direct:get-user-by-id")
+                    .put("/{id}").to("direct:update-user")
+                    .delete("/{id}").to("direct:delete-user");
+
+                rest("/health")
+                    .get("/").to("direct:health");
+
+                rest("/test")
+                    .get("/error").to("direct:test-error");
+            }
+        };
+    }
+}
+```
+
+#### 2. ルート実装（XML IO DSL）
+
+`camel/routes.xml`
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <routes xmlns="http://camel.apache.org/schema/xml-io">
 
-  <!-- REST設定：Servletを使用 -->
-  <restConfiguration component="servlet" 
-                     bindingMode="off" 
-                     contextPath="/api"
-                     enableCORS="true">
-    <dataFormatProperty key="prettyPrint" value="true"/>
-  </restConfiguration>
+  <!-- ルート実装（direct経由でREST DSLから呼び出される） -->
+  <route id="get-users-route">
+    <from uri="direct:get-users"/>
+    <log message="ユーザー一覧取得"/>
+    <doTry>
+      <process ref="getUsersProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode">
+          <constant>500</constant>
+        </setHeader>
+        <setHeader name="Content-Type">
+          <constant>application/json</constant>
+        </setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
 
-  <!-- RESTエンドポイント定義 -->
-  <rests>
-    <rest path="/users">
-      <!-- GET /api/users -->
-      <get uri="/">
-        <route id="get-users-route">
-          <log message="ユーザー一覧取得リクエスト"/>
-          <process ref="getUsersProcessor"/>
-        </route>
-      </get>
-      
-      <!-- POST /api/users -->
-      <post uri="/">
-        <route id="create-user-route">
-          <log message="ユーザー作成: ${body}"/>
-          <process ref="createUserProcessor"/>
-        </route>
-      </post>
-      
-      <!-- GET /api/users/{id} -->
-      <get uri="/{id}">
-        <route id="get-user-by-id-route">
-          <log message="ユーザー詳細取得: ID=${header.id}"/>
-          <process ref="getUserByIdProcessor"/>
-        </route>
-      </get>
-      
-      <!-- PUT /api/users/{id} -->
-      <put uri="/{id}">
-        <route id="update-user-route">
-          <log message="ユーザー更新: ID=${header.id}"/>
-          <process ref="updateUserProcessor"/>
-        </route>
-      </put>
-      
-      <!-- DELETE /api/users/{id} -->
-      <delete uri="/{id}">
-        <route id="delete-user-route">
-          <log message="ユーザー削除: ID=${header.id}"/>
-          <process ref="deleteUserProcessor"/>
-        </route>
-      </delete>
-    </rest>
-    
-    <rest path="/health">
-      <get uri="/">
-        <route id="health-route">
-          <log message="ヘルスチェック"/>
-          <process ref="healthCheckProcessor"/>
-        </route>
-      </get>
-    </rest>
-  </rests>
+  <route id="create-user-route">
+    <from uri="direct:create-user"/>
+    <log message="ユーザー作成"/>
+    <doTry>
+      <process ref="createUserProcessor"/>
+      <doCatch>
+        <exception>java.lang.Exception</exception>
+        <setHeader name="CamelHttpResponseCode">
+          <constant>500</constant>
+        </setHeader>
+        <setHeader name="Content-Type">
+          <constant>application/json</constant>
+        </setHeader>
+        <process ref="globalErrorProcessor"/>
+      </doCatch>
+    </doTry>
+  </route>
+
+  <!-- 他のルートも同様に実装... -->
 </routes>
 ```
 
 **特徴**:
 - ✅ 各エンドポイントが独立したルート（7ルート）
-- ✅ HTTPメソッドがXMLタグで明確（`<get>`, `<post>`, `<put>`, `<delete>`）
+- ✅ HTTPメソッドがJava DSLで明確（`.get()`, `.post()`, `.put()`, `.delete()`）
+- ✅ ルート実装はXML IO DSLで記述可能
 - ✅ 既存のREST DSL構成と同じ構造
 - ✅ Platform HTTPの構成に近い
 - ✅ 404/405エラーが自動的に処理される
@@ -223,7 +252,9 @@ public class CustomErrorController implements ErrorController {
 2. Spring BootのエラーハンドラにフォワードされCustomErrorControllerが処理
 3. JSON形式のエラーレスポンスを返却
 
-## Java設定（簡略化版）
+#### 3. Servlet登録（Java）
+
+`RequestHandlingApplication.java`
 
 ```java
 @SpringBootApplication(exclude = ServletMappingAutoConfiguration.class)
@@ -233,6 +264,10 @@ public class RequestHandlingApplication {
         SpringApplication.run(RequestHandlingApplication.class, args);
     }
     
+    /**
+     * CamelServletの明示的な登録
+     * /api/* のパスで受け付ける
+     */
     @Bean
     public ServletRegistrationBean<CamelHttpTransportServlet> servletRegistrationBean() {
         ServletRegistrationBean<CamelHttpTransportServlet> registration = 
@@ -243,32 +278,66 @@ public class RequestHandlingApplication {
 }
 ```
 
+**重要ポイント**:
+- `ServletMappingAutoConfiguration`を除外して、Servletの二重登録を防止
+- `/api/*`パスで明示的にServletを登録
+
+#### 4. Spring Boot設定
+
+`application.yml`
+
 ```yaml
-# application.yml
+server:
+  port: 8080
+  undertow:
+    threads:
+      io: 4
+      worker: 20
+  error:
+    whitelabel:
+      enabled: false
+
+spring:
+  application:
+    name: request-handling-app
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
 camel:
   springboot:
     name: RequestHandlingCamelContext
     xml-routes: "classpath:camel/*.xml"
+
+error:
+  messages:
+    404: "指定されたリソースが見つかりません"
+    405: "許可されていないHTTPメソッドです"
+    500: "内部サーバーエラーが発生しました"
+    default: "エラーが発生しました"
 ```
 
 ## REST DSL vs 単一ルートの比較
 
-| 項目 | REST DSL | 単一ルート + Choice |
-|-----|----------|-------------------|
+| 項目 | REST DSL（Java + XML IO DSL） | 単一ルート + Choice |
+|-----|-------------------------------|-------------------|
 | ルート数 | 7ルート（独立） | 1ルート（統合） |
-| XMLの行数 | 約100行 | 約161行 |
+| 実装ファイル数 | 2ファイル（Java + XML） | 1ファイル（XML） |
 | 可読性 | ⭐⭐⭐⭐⭐ | ⭐⭐ |
 | 保守性 | ⭐⭐⭐⭐⭐ | ⭐⭐ |
 | 既存構成との互換性 | ✅ 維持可能 | ❌ 破壊的 |
-| HTTPメソッド定義 | XMLタグ（`<get>`, `<post>`等） | `<choice>`で条件分岐 |
+| HTTPメソッド定義 | Java DSLメソッド（`.get()`, `.post()`等） | `<choice>`で条件分岐 |
 | パスパラメータ | 自動抽出（`{id}`） | 手動抽出（`substring`） |
 | 404/405処理 | 自動 | 手動実装 |
-| 新規EP追加 | 簡単（5分） | やや困難（15分） |
+| 新規EP追加 | 簡単（Java DSL 1行 + XML 1ルート） | やや困難（XMLの`<choice>`修正） |
 | Platform HTTP構成との類似性 | 高い | 低い |
+| XML IO DSL完結度 | ⚠️ Java DSL必須 | ✅ XML IO DSLのみ |
 
 ## Platform HTTP構成との比較
 
-### Platform HTTP
+### Platform HTTP（XML IO DSL）
 
 ```xml
 <route id="get-users-route">
@@ -284,35 +353,56 @@ camel:
 </route>
 ```
 
-### Servlet + REST DSL
+**特徴**:
+- ✅ 完全にXML IO DSLで記述可能
+- ✅ `platform-http:` URIで直接エンドポイントを定義
+- ✅ `httpMethodRestrict`でHTTPメソッドを指定
+
+### Servlet + REST DSL（Java + XML IO DSL ハイブリッド）
+
+**Java DSL（REST設定とエンドポイント定義）**:
+
+```java
+restConfiguration()
+    .component("servlet")
+    .bindingMode(RestBindingMode.off)
+    .contextPath("/api");
+
+rest("/users")
+    .get("/").to("direct:get-users")
+    .post("/").to("direct:create-user");
+```
+
+**XML IO DSL（ルート実装）**:
 
 ```xml
-<rest path="/users">
-  <get uri="/">
-    <route id="get-users-route">
-      <log message="ユーザー一覧取得リクエスト"/>
-      <process ref="getUsersProcessor"/>
-    </route>
-  </get>
-  
-  <post uri="/">
-    <route id="create-user-route">
-      <log message="ユーザー作成: ${body}"/>
-      <process ref="createUserProcessor"/>
-    </route>
-  </post>
-</rest>
+<route id="get-users-route">
+  <from uri="direct:get-users"/>
+  <log message="ユーザー一覧取得リクエスト"/>
+  <process ref="getUsersProcessor"/>
+</route>
+
+<route id="create-user-route">
+  <from uri="direct:create-user"/>
+  <log message="ユーザー作成: ${body}"/>
+  <process ref="createUserProcessor"/>
+</route>
 ```
+
+**特徴**:
+- ⚠️ Java DSLとXML IO DSLのハイブリッド構成
+- ✅ REST設定はJava DSLで記述（XML IO DSLの制限を回避）
+- ✅ ルート実装はXML IO DSLで記述可能
+- ✅ `.get()`, `.post()` メソッドでHTTPメソッドを指定
 
 **類似点**:
 - ✅ 各エンドポイントが独立したルート
 - ✅ HTTPメソッドが明確
-- ✅ 構造が似ている
 - ✅ 404/405が自動処理
 
 **相違点**:
-- Platform HTTP: `httpMethodRestrict`パラメータで指定
-- Servlet + REST DSL: XMLタグ（`<get>`, `<post>`）で指定
+- Platform HTTP: 完全にXML IO DSL、`httpMethodRestrict`パラメータで指定
+- Servlet + REST DSL: Java DSL（REST設定）+ XML IO DSL（ルート実装）、Java DSLメソッド（`.get()`, `.post()`）で指定
 
 ## 既存のREST DSL構成への影響
 
@@ -322,78 +412,117 @@ REST DSLを使用する限り、既存の構成を**そのまま維持**でき�
 
 **例**: 既存のAPIがある場合
 
-```xml
-<!-- 既存のAPI -->
-<rest path="/orders">
-  <get uri="/">
-    <route id="get-orders-route">
-      <!-- ... -->
-    </route>
-  </get>
-</rest>
+**Java DSL（`RestApiConfiguration.java`）**:
 
-<!-- 新規追加のAPI -->
-<rest path="/users">
-  <get uri="/">
-    <route id="get-users-route">
-      <!-- ... -->
-    </route>
-  </get>
-</rest>
+```java
+@Bean
+public RouteBuilder restConfigurationRouteBuilder() {
+    return new RouteBuilder() {
+        @Override
+        public void configure() throws Exception {
+            // REST設定（全体共通）
+            restConfiguration()
+                .component("servlet")
+                .bindingMode(RestBindingMode.off)
+                .contextPath("/api");
+
+            // 既存のAPI
+            rest("/orders")
+                .get("/").to("direct:get-orders");
+
+            // 新規追加のAPI
+            rest("/users")
+                .get("/").to("direct:get-users");
+        }
+    };
+}
 ```
 
-**影響なし**: 各`<rest>`ブロックは独立しており、相互に影響しません。
+**XML IO DSL（`camel/routes.xml`）**:
+
+```xml
+<!-- 既存のルート -->
+<route id="get-orders-route">
+  <from uri="direct:get-orders"/>
+  <!-- ... -->
+</route>
+
+<!-- 新規追加のルート -->
+<route id="get-users-route">
+  <from uri="direct:get-users"/>
+  <!-- ... -->
+</route>
+```
+
+**影響なし**: 各`rest()`ブロックと`<route>`は独立しており、相互に影響しません。
 
 ## エラーハンドリングの実装パターン
 
-### パターン1: ルート内でエラー処理
+### 現在の実装: ルート内でエラー処理
+
+**XML IO DSL（`camel/routes.xml`）**:
 
 ```xml
-<rest path="/users">
-  <get uri="/">
-    <route id="get-users-route">
-      <doTry>
-        <process ref="getUsersProcessor"/>
-        <doCatch>
-          <exception>java.lang.Exception</exception>
-          <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
-          <process ref="globalErrorProcessor"/>
-        </doCatch>
-      </doTry>
-    </route>
-  </get>
-</rest>
+<route id="get-users-route">
+  <from uri="direct:get-users"/>
+  <log message="ユーザー一覧取得"/>
+  <doTry>
+    <process ref="getUsersProcessor"/>
+    <doCatch>
+      <exception>java.lang.Exception</exception>
+      <setHeader name="CamelHttpResponseCode">
+        <constant>500</constant>
+      </setHeader>
+      <setHeader name="Content-Type">
+        <constant>application/json</constant>
+      </setHeader>
+      <process ref="globalErrorProcessor"/>
+    </doCatch>
+  </doTry>
+</route>
 ```
 
 **特徴**:
 - ✅ 各ルートで個別にエラー処理
 - ✅ きめ細かい制御が可能
+- ✅ エラーレスポンスのカスタマイズが容易
 
-### パターン2: グローバルエラーハンドラ
+### 代替案: グローバルエラーハンドラ
+
+**XML IO DSL（`camel/routes.xml`）**:
 
 ```xml
-<errorHandler type="defaultErrorHandler">
-  <redeliveryPolicy maximumRedeliveries="0"/>
+<routes xmlns="http://camel.apache.org/schema/xml-io">
+
+  <!-- グローバルエラーハンドラ -->
   <onException>
     <exception>java.lang.Exception</exception>
-    <handled><constant>true</constant></handled>
-    <setHeader name="CamelHttpResponseCode"><constant>500</constant></setHeader>
+    <handled>
+      <constant>true</constant>
+    </handled>
+    <setHeader name="CamelHttpResponseCode">
+      <constant>500</constant>
+    </setHeader>
+    <setHeader name="Content-Type">
+      <constant>application/json</constant>
+    </setHeader>
     <process ref="globalErrorProcessor"/>
   </onException>
-</errorHandler>
 
-<rest path="/users">
-  <get uri="/">
-    <route id="get-users-route">
-      <process ref="getUsersProcessor"/>
-    </route>
-  </get>
-</rest>
+  <!-- ルート定義（エラーハンドリング不要） -->
+  <route id="get-users-route">
+    <from uri="direct:get-users"/>
+    <log message="ユーザー一覧取得"/>
+    <process ref="getUsersProcessor"/>
+  </route>
+
+</routes>
 ```
 
 **特徴**:
 - ✅ すべてのルートで統一的なエラー処理
 - ✅ ルート定義がシンプル
+- ⚠️ エラー処理のカスタマイズが困難
 
 ## まとめ
 
@@ -403,11 +532,29 @@ REST DSLを使用する限り、既存の構成を**そのまま維持**でき�
 
 **回答**: ✅ **可能です。REST DSLを使用すれば実現できます。**
 
+### 現在の実装構成
+
+**Java + XML IO DSL ハイブリッド構成**
+
+1. **Java DSL**（`config/RestApiConfiguration.java`）
+   - REST設定（`restConfiguration()`）
+   - RESTエンドポイント定義（`rest().get()`, `rest().post()`, etc.）
+   - `direct:` エンドポイントへの転送
+
+2. **XML IO DSL**（`camel/routes.xml`）
+   - `direct:` エンドポイントからの受信
+   - ルート実装（ビジネスロジック）
+   - エラーハンドリング（`doTry`/`doCatch`）
+
+3. **Java**（`RequestHandlingApplication.java`）
+   - Servlet明示的登録（`ServletRegistrationBean`）
+   - Auto-configuration除外（`ServletMappingAutoConfiguration`）
+
 ### キーポイント
 
-1. ✅ **REST DSLを使用する**
-   - `<restConfiguration component="servlet">`
-   - `<rests>` / `<rest>` / `<get>`, `<post>`, `<put>`, `<delete>`
+1. ✅ **REST DSLを使用する**（Java DSL）
+   - `restConfiguration().component("servlet")`
+   - `rest("/users").get("/").to("direct:get-users")`
 
 2. ✅ **各エンドポイントを独立したルートとして定義**
    - 既存のREST DSL構成と同じ構造
@@ -418,8 +565,14 @@ REST DSLを使用する限り、既存の構成を**そのまま維持**でき�
    - CustomErrorControllerがJSONレスポンスを生成
 
 4. ✅ **既存構成への影響なし**
-   - 各`<rest>`ブロックは独立
+   - 各`rest()`ブロックと`<route>`は独立
    - 新規追加が容易
+
+### XML IO DSLの制限事項
+
+XML IO DSL（Camel 4.8）では、`<restConfiguration>` 要素がサポートされていないため、REST設定とエンドポイント定義はJava DSLで記述する必要があります。
+
+ただし、ルート実装（ビジネスロジック）はXML IO DSLで記述可能です。
 
 ### 推奨構成
 
@@ -430,9 +583,28 @@ REST DSLを使用する限り、既存の構成を**そのまま維持**でき�
 - ❌ 複雑で保守が困難
 - ❌ 新規エンドポイント追加が困難
 
+### アーキテクチャ図
+
+```
+[HTTP Request]
+    ↓
+[CamelServlet] (/api/*)
+    ↓
+[REST DSL] (Java) - RESTエンドポイント定義
+    ↓
+[direct:get-users] (転送)
+    ↓
+[Route] (XML IO DSL) - ルート実装
+    ↓
+[Processor] (Java) - ビジネスロジック
+    ↓
+[HTTP Response]
+```
+
 ---
 
 **作成日**: 2025-11-17  
+**更新日**: 2025-11-17  
 **プロジェクト**: Apache Camel 4 REST API実装  
-**バージョン**: 2.0.0 (訂正版)
+**バージョン**: 3.0.0 (現在の実装ベース)
 
